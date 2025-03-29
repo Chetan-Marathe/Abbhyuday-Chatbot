@@ -1,0 +1,84 @@
+<!DOCTYPE html>
+<html xmlns:th="http://www.thymeleaf.org">
+<head>
+    <title>Abhyuday Voice Companion</title>
+    <link rel="stylesheet" href="/styles.css">
+</head>
+<body>
+    <h1>Abhyuday Voice Companion</h1>
+
+    <!-- Chat Display -->
+    <div id="chat-box">
+        <div id="messages"></div>
+    </div>
+
+    <!-- Text Input -->
+    <input type="text" id="userInput" placeholder="Type your message...">
+    <button onclick="sendMessage()">Send</button>
+
+    <!-- Voice Recording -->
+    <button id="recordButton">🎤 Start Recording</button>
+
+    <!-- Audio Playback -->
+    <audio id="audioPlayback" controls></audio>
+
+    <script>
+        // Send message to chatbot
+        function sendMessage() {
+            let userInput = document.getElementById("userInput").value;
+            fetch("/api/chat/ask?message=" + encodeURIComponent(userInput))
+                .then(response => response.text())
+                .then(data => {
+                    document.getElementById("messages").innerHTML += "<p><strong>You:</strong> " + userInput + "</p>";
+                    document.getElementById("messages").innerHTML += "<p><strong>Bot:</strong> " + data + "</p>";
+                    textToSpeech(data);
+                });
+        }
+
+        // Convert text to speech (calls Spring Boot TTS API)
+        function textToSpeech(text) {
+            fetch("/api/tts/speak?text=" + encodeURIComponent(text))
+                .then(response => response.blob())
+                .then(blob => {
+                    let audioUrl = URL.createObjectURL(blob);
+                    document.getElementById("audioPlayback").src = audioUrl;
+                });
+        }
+
+        // Voice Recording and STT
+        let mediaRecorder;
+        let audioChunks = [];
+
+        document.getElementById("recordButton").addEventListener("click", function() {
+            if (!mediaRecorder || mediaRecorder.state === "inactive") {
+                navigator.mediaDevices.getUserMedia({ audio: true }).then(stream => {
+                    mediaRecorder = new MediaRecorder(stream);
+                    mediaRecorder.start();
+
+                    mediaRecorder.ondataavailable = event => {
+                        audioChunks.push(event.data);
+                    };
+
+                    mediaRecorder.onstop = () => {
+                        let audioBlob = new Blob(audioChunks, { type: "audio/wav" });
+                        let formData = new FormData();
+                        formData.append("file", audioBlob, "recorded_audio.wav");
+
+                        fetch("/api/stt/transcribe", { method: "POST", body: formData })
+                            .then(response => response.text())
+                            .then(transcribedText => {
+                                document.getElementById("messages").innerHTML += "<p><strong>You (Voice):</strong> " + transcribedText + "</p>";
+                                sendMessage(transcribedText);
+                            });
+                    };
+
+                    document.getElementById("recordButton").textContent = "Stop Recording";
+                });
+            } else {
+                mediaRecorder.stop();
+                document.getElementById("recordButton").textContent = "Start Recording";
+            }
+        });
+    </script>
+</body>
+</html>
